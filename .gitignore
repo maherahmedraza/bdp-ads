@@ -4,12 +4,11 @@
 ##
 ## Add custom entries below here.
 ##
-data/
+data/*/
 etl_env/
 .cache/v/cache/lastfailed
 tests/.cache/v/cache/lastfailed
 .vscode/settings.json
-
 ##
 ## R Section - See https://github.com/github/gitignore/blob/master/R.gitignore
 ##
