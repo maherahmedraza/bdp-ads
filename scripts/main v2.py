@@ -1,13 +1,13 @@
 import os
 import boto3
-import init_session
+import sympy
 import gzip
 import json
 from io import BytesIO
 from pyspark.sql import SparkSession
 
 """Initialize Session with Server"""
-session = init_session.session
+session = sympy.init_session.session
 
 # Create an S3 client
 s3 = session.client('s3')
