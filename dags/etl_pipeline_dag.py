@@ -1,51 +1,55 @@
-import os
+from __future__ import annotations
+
+# [START tutorial]
+# [START import_module]
+import json
+from textwrap import dedent
+
+import pendulum
 import boto3
 import gzip
-import pyspark.sql.functions as F
-from io import BytesIO
-from pyspark.sql import SparkSession
-from sqlalchemy import create_engine
-from datetime import datetime, timedelta
+import os
 import logging
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Date, Boolean, Text, BigInteger
+from pyspark.sql import SparkSession
+import pyspark.sql.functions as F
 
+# The DAG object; we'll need this to instantiate a DAG
 from airflow import DAG
+
+# Operators; we need this to operate!
 from airflow.operators.python import PythonOperator
 
+# [END import_module]
 
-default_args = {
-    'owner': 'Maher',
-    'depends_on_past': False,
-    # 'start_date': days_ago(1),
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-    # 'email_on_failure': True,
-    # 'email_on_retry': True,
-}
+# [START instantiate_dag]
+with DAG(
+        "etl_pipeline_dag",
+        # [START default_args]
+        # These args will get passed on to each operator
+        # You can override them on a per-task basis during operator initialization
+        default_args={"retries": 2},
+        # [END default_args]
+        description="DAG tutorial",
+        schedule=None,
+        start_date=pendulum.datetime(2021, 1, 1, tz="UTC"),
+        catchup=False,
+        tags=["example"],
+) as dag:
+    # [END instantiate_dag]
+    # [START documentation]
+    dag.doc_md = __doc__
+    # [END documentation]
 
-dag = DAG(
-    dag_id="etl_pipeline",
-    default_args={"start_date": datetime.today()},
-    schedule_interval=timedelta(minutes=30),
-)
-
-
-def extract_data(**kwargs):
-    """Extracts the data from the source.
-
-    Returns:
-      The extracted data.
-    """
-
-    try:
-        logging.info("Extracting data from the source.")
-
+    # [START extract_function]
+    def extract(**kwargs):
+        ti = kwargs["ti"]
 
         # Load environment variables
-        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-        aws_region = os.getenv('AWS_REGION')
-        aws_bucket_name = os.getenv('AWS_BUCKET_NAME')
-        connection_string = os.getenv('POSTGRES_CONNECTION_STRING')
+        aws_access_key_id = "***REMOVED***"
+        aws_secret_access_key = "***REMOVED***"
+        aws_region = "eu-central-1"
+        aws_bucket_name = "jobfeed-data-feeds"
 
         # Creating Boto3 Session
         session = boto3.Session(
@@ -53,190 +57,167 @@ def extract_data(**kwargs):
             aws_secret_access_key=aws_secret_access_key,
             region_name=aws_region
         )
+
+        logging.info("S3 session created", session)
         s3 = session.client('s3')
 
-        # Creating Spark Session
-        spark = SparkSession.builder \
-            .master("local") \
-            .appName("ETL-Pipeline") \
-            .config("spark.jars", ROOT_DIR+"/postgresql-42.6.0.jar") \
-            .config("spark.driver.extraClassPath", ROOT_DIR+"/postgresql-42.6.0.jar") \
-            .config("spark.executor.extraClassPath", ROOT_DIR+"/postgresql-42.6.0.jar") \
-            .getOrCreate()
+        # Get the list of objects in the S3 bucket
+        prefix = 'DE/monthly/'
+        response = s3.list_objects_v2(Bucket=aws_bucket_name, Prefix=prefix, Delimiter='/')
+        logging.info("S3 response", response)
 
-        # Download files from S3 and load into Spark DataFrame
-        # ... (code for downloading and processing S3 data)
-        df.show(truncate=False)
+        #Number of Months to download
+        months = 6
+        # Number of files per month to download
+        files_per_month = 1
+        # current project directory parent path
+        ROOT_DIR = os.path.abspath(os.pardir)
 
-        # Extract data from PostgreSQL into Spark DataFrame
-        six_months_ago = datetime.now() - timedelta(days=180)
-        six_months_ago = six_months_ago.strftime("%Y-%m-%d")
-        where_clause = "(SELECT * FROM tk_2023_07 WHERE date >= '" + six_months_ago + "') as tk"
-        postgres_data = spark.read.format("jdbc") \
-            .option("url", os.getenv('POSTGRES_CONNECTION_JDBC_STRING')) \
-            .option("dbtable", where_clause) \
-            .option("user", os.getenv('POSTGRES_USER')) \
-            .option("password", os.getenv('POSTGRES_PASSWORD')) \
-            .option("driver", "org.postgresql.Driver") \
-            .load()
-
-        # Find difference between the two dataframes when postgres_data count is greater than 0
-        if postgres_data_count > 0:
-            changes_df = df.join(postgres_data, df.posting_id == postgres_data.posting_id, how='left_anti')
-        else:
-            changes_df = df
-
-        # Push the changes_df to XCom
-        kwargs['ti'].xcom_push(key='extracted_data', value=changes_df)
-        # return changes_df
-
-    except Exception as e:
-        logging.error("Error occurred during data extraction: %s", str(e))
-        raise
+        # Get the list of subfolders in the S3 bucket
+        subfolders = [obj['Prefix'] for obj in response['CommonPrefixes']]
+        # Get the last N subfolders - N = months of data to download
+        subfolders = subfolders[-months:]
 
 
+        filesToLoadInDF = []
+        # Download files from each subfolder
+        for subfolder in subfolders:
+            # Get the list of files in the subfolder
+            response = s3.list_objects_v2(Bucket=aws_bucket_name, Prefix=subfolder)
+            # Get the file paths
+            files = [obj['Key'] for obj in response['Contents'] if obj['Key'].endswith('.jsonl.gz')]
+            # Only get the first N files
+            files = files[:files_per_month]
+
+            # filesToLoadInDF = [filesToLoadInDF.append(f) for f in files]
+
+            # Create the folder in your local machine
+            folder = "/opt/airflow/dags/data/raw/" + aws_bucket_name + "/" + subfolder
+            if not os.path.exists(folder):
+                oldmask = os.umask(000)
+                os.makedirs(folder, 0o777)
+                os.umask(odmask)
 
 
-def transform_data(**kwargs):
-    """Transforms the extracted data.
+            # Download and extract each file
+            for file in files:
+                filename = file.rsplit("/", 1)[1]
+                print('Downloading file {}...'.format(filename))
+                print(subfolder + filename)
+                print(folder + filename)
 
-    Args:
-        extracted_data: The data extracted from the source.
+                # Check if the file already exists
+                localExtractedFilePath = os.path.join(folder + filename[:-3])
+                if not os.path.exists(localExtractedFilePath):
+                    # Download and Save the file
+                    s3.download_file(Filename=folder + filename, Bucket=aws_bucket_name, Key=subfolder + filename)
 
-    Returns:
-        The transformed data.
+                    locaFilePath = os.path.join(folder + filename)
+                    print(localExtractedFilePath)
+                    filesToLoadInDF.append(localExtractedFilePath)
+                    # Extract the data from the gzipped file
+                    with gzip.open(locaFilePath, 'rb') as gz_file, open(localExtractedFilePath, 'wb') as extract_file:
+                        extract_file.write(gz_file.read())
+
+                    # Delete the gzipped file
+                    os.remove(locaFilePath)
+                else:
+                    filesToLoadInDF.append(localExtractedFilePath)
+                    print('File already exists. Skipping...')
+
+        print(filesToLoadInDF)
+
+        # Create a connection to Postgres
+        connection_string = "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db"
+        engine = create_engine(connection_string, isolation_level="AUTOCOMMIT")
+        print(engine)
+        pgconn = engine.connect()
+        print(pgconn)
+
+        #Create spark session
+        # spark = SparkSession.builder \
+        #     .master("local") \
+        #     .appName("DE-Project") \
+        #     .getOrCreate()
+        # # .config("spark.sql.shuffle.partitions", "50") \
+        # # .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
+        # print(spark)
+        # df = spark.read.json(filesToLoadInDF)
+        # df.printSchema()
+
+
+        data_string = '{"1001": 301.27, "1002": 433.21, "1003": 502.22}'
+        ti.xcom_push("order_data", data_string)
+
+    # [END extract_function]
+
+    # [START transform_function]
+    def transform(**kwargs):
+        ti = kwargs["ti"]
+        extract_data_string = ti.xcom_pull(task_ids="extract", key="order_data")
+        order_data = json.loads(extract_data_string)
+
+        total_order_value = 0
+        for value in order_data.values():
+            total_order_value += value
+
+        total_value = {"total_order_value": total_order_value}
+        total_value_json_string = json.dumps(total_value)
+        ti.xcom_push("total_order_value", total_value_json_string)
+
+    # [END transform_function]
+
+    # [START load_function]
+    def load(**kwargs):
+        ti = kwargs["ti"]
+        total_value_string = ti.xcom_pull(task_ids="transform", key="total_order_value")
+        total_order_value = json.loads(total_value_string)
+
+        print(total_order_value)
+
+    # [END load_function]
+
+    # [START main_flow]
+    extract_task = PythonOperator(
+        task_id="extract",
+        python_callable=extract,
+    )
+    extract_task.doc_md = dedent(
+        """\
+    #### Extract task
+    A simple Extract task to get data ready for the rest of the data pipeline.
+    In this case, getting data is simulated by reading from a hardcoded JSON string.
+    This data is then put into xcom, so that it can be processed by the next task.
     """
+    )
 
-    try:
-        # Your existing transform_data code
-        logging.info("Transforming data.")
-        # Get the extracted data from the XCom of the previous task
-        extracted_data = kwargs['ti'].xcom_pull(task_ids='extract_data', key='extracted_data')
-
-
-        # Create a new column for the duration of the job posting in days
-        # Change the data types of the columns.
-        df_types_fixed = extracted_data.withColumn("job_id", extracted_data.job_id.cast(T.StringType())) \
-            .withColumn("posting_count", extracted_data.posting_count.cast(T.LongType())) \
-            .withColumn("source_website_count", extracted_data.source_website_count.cast(T.LongType())) \
-            .withColumn("date", extracted_data.date.cast(T.DateType())) \
-            .withColumn("expiration_date", extracted_data.expiration_date.cast(T.DateType())) \
-            .withColumn("duration", extracted_data.duration.cast(T.LongType())) \
-            .withColumn("salary", extracted_data.salary.cast(T.LongType())) \
-            .withColumn("salary_from", extracted_data.salary_from.cast(T.LongType())) \
-            .withColumn("salary_to", extracted_data.salary_to.cast(T.LongType())) \
-            .withColumn("experience_years_from", extracted_data.experience_years_from.cast(T.LongType())) \
-            .withColumn("experience_years_to", extracted_data.experience_years_to.cast(T.LongType())) \
-            .withColumn("hours_per_week_from", extracted_data.hours_per_week_from.cast(T.LongType())) \
-            .withColumn("hours_per_week_to", extracted_data.hours_per_week_to.cast(T.LongType())) \
-            .withColumn('working_hours_type', extracted_data.working_hours_type.cast(T.IntegerType())) \
-            .withColumn('advertiser_type', extracted_data.advertiser_type.cast(T.StringType())) \
-            .withColumn('contract_type', extracted_data.contract_type.cast(T.StringType())) \
-            .withColumn('education_level', extracted_data.education_level.cast(T.StringType())) \
-            .withColumn('employment_type', extracted_data.employment_type.cast(T.StringType())) \
-            .withColumn('experience_level', extracted_data.experience_level.cast(T.StringType())) \
-            .withColumn("it_skills", F.concat_ws(",", extracted_data.it_skills.value)) \
-            .withColumn("language_skills", F.concat_ws(",", extracted_data.language_skills.value)) \
-            .withColumn('organization_activity', extracted_data.organization_activity.cast(T.StringType())) \
-            .withColumn('organization_industry', extracted_data.organization_industry.cast(T.StringType())) \
-            .withColumn('organization_region', extracted_data.organization_region.cast(T.StringType())) \
-            .withColumn('organization_size', extracted_data.organization_size.cast(T.StringType())) \
-            .withColumn('profession', extracted_data.profession.cast(T.StringType())) \
-            .withColumn('profession_class', extracted_data.profession_class.cast(T.StringType())) \
-            .withColumn('profession_group', extracted_data.profession_group.cast(T.StringType())) \
-            .withColumn('profession_isco_code', extracted_data.profession_isco_code.cast(T.StringType())) \
-            .withColumn('profession_kldb_code', extracted_data.profession_kldb_code.cast(T.StringType())) \
-            .withColumn('profession_onet_2019_code', extracted_data.profession_onet_2019_code.cast(T.StringType())) \
-            .withColumn("professional_skills", F.concat_ws(",", extracted_data.professional_skills.value)) \
-            .withColumn('region', extracted_data.region.cast(T.StringType())) \
-            .withColumn('organization_national_id', F.substring(extracted_data.organization_national_id, 1, 25)) \
-            .withColumn("soft_skills", F.concat_ws(",", extracted_data.soft_skills.value)) \
-            .withColumn('source_type', extracted_data.source_type.cast(T.StringType())) \
-            .withColumn('advertiser_email', F.concat_ws(",", F.slice(F.split(extracted_data.advertiser_email, ','), 1, 5))) \
-            .withColumn('advertiser_website', F.concat_ws(",", F.slice(F.split(extracted_data.advertiser_website, ','), 1, 5))) \
-            .withColumn('advertiser_contact_person', F.substring(extracted_data.advertiser_contact_person, 1, 255)) \
-            .withColumn('advertiser_reference_number', F.substring(extracted_data.advertiser_reference_number, 1, 255)) \
-            .withColumn('organization_website', F.substring(extracted_data.organization_website, 1, 100)) \
-            .withColumn('organization_linkedin_id', F.substring(extracted_data.organization_linkedin_id, 1, 255)) \
-            .withColumn('apply_url', F.substring(extracted_data.apply_url, 1, 255)) \
-            .withColumn('source_url', F.substring(extracted_data.source_url, 1, 255)) \
-            .withColumn('source_website', F.substring(extracted_data.source_website, 1, 255)) \
-            .withColumn('advertiser_name', F.substring(extracted_data.advertiser_name, 1, 255)) \
-            .withColumn('advertiser_phone', F.concat_ws(",", F.slice(F.split(extracted_data.advertiser_phone, ','), 1, 10)))
-
-        df_types_fixed = df_types_fixed.withColumn("it_skills", F.when(df_types_fixed.it_skills == "", None).otherwise(df_types_fixed.it_skills)) \
-            .withColumn("language_skills", F.when(df_types_fixed.language_skills == "", None).otherwise(df_types_fixed.language_skills)) \
-            .withColumn("professional_skills", F.when(df_types_fixed.professional_skills == "", None).otherwise(df_types_fixed.professional_skills)) \
-            .withColumn("soft_skills", F.when(df_types_fixed.soft_skills == "", None).otherwise(df_types_fixed.soft_skills)) \
-
-
-        # Drop duplicates in posting_id column and keep the latest one
-        df_deduplicated = df_types_fixed.dropDuplicates(['posting_id'])
-
-        # Push the df_deduplicated to XCom
-        kwargs['ti'].xcom_push(key='transformed_data', value=df_deduplicated)
-        return df_deduplicated
-    except Exception as e:
-        logging.error("Error occurred during data transformation: %s", str(e))
-        raise
-
-
-
-
-def load_data(**kwargs):
-    """Loads the transformed data into the Postgres warehouse.
-
-    Args:
-        transformed_data: The data after transformation.
-
-    Returns:
-        None.
+    transform_task = PythonOperator(
+        task_id="transform",
+        python_callable=transform,
+    )
+    transform_task.doc_md = dedent(
+        """\
+    #### Transform task
+    A simple Transform task which takes in the collection of order data from xcom
+    and computes the total order value.
+    This computed value is then put into xcom, so that it can be processed by the next task.
     """
-    try:
-        # Your existing load_data code
-        logging.info("Loading data into the warehouse.")
+    )
 
-        # Get the transformed data from the XCom of the previous task
-        transformed_data = kwargs['ti'].xcom_pull(task_ids='transform_data', key='transformed_data')
+    load_task = PythonOperator(
+        task_id="load",
+        python_callable=load,
+    )
+    load_task.doc_md = dedent(
+        """\
+    #### Load task
+    A simple Load task which takes in the result of the Transform task, by reading it
+    from xcom and instead of saving it to end user review, just prints it out.
+    """
+    )
 
-        # Write the data to a table in Postgres
-        transformed_data.write.format("jdbc") \
-            .option("url", os.getenv('POSTGRES_CONNECTION_JDBC_STRING')) \
-            .option("dbtable", os.getenv('POSTGRES_TABLE')) \
-            .option("user", os.getenv('POSTGRES_USER')) \
-            .option("password", os.getenv('POSTGRES_PASSWORD')) \
-            .option("driver", "org.postgresql.Driver") \
-            .mode("append") \
-            .save()
+    extract_task >> transform_task >> load_task
 
-        print("Data loaded to Postgres warehouse.")
+# [END main_flow]
 
-
-    except Exception as e:
-        logging.error("Error occurred during data loading: %s", str(e))
-        raise
-
-
-
-extract_task = PythonOperator(
-    task_id='extract_data',
-    python_callable=extract_data,
-    provide_context=True,
-    dag=dag,
-)
-
-transform_task = PythonOperator(
-    task_id="transform_data",
-    python_callable=transform_data,
-    dag=dag,
-    depends_on_past=True,
-)
-
-load_task = PythonOperator(
-    task_id="load_data",
-    python_callable=load_data,
-    dag=dag,
-    depends_on_past=True,
-)
-
-extract_task >> transform_task >> load_task
+# [END tutorial]
