@@ -13,6 +13,7 @@ import logging
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Date, Boolean, Text, BigInteger
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
+from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
 
 # The DAG object; we'll need this to instantiate a DAG
 from airflow import DAG
@@ -21,6 +22,12 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 
 # [END import_module]
+
+
+# spark_master = "spark://spark:7077"
+config_file = "/opt/airflow/spark/assets/configs/config.json"
+with open(config_file, 'r') as f:
+    config = json.load(f)
 
 # [START instantiate_dag]
 with DAG(
@@ -92,11 +99,11 @@ with DAG(
             # filesToLoadInDF = [filesToLoadInDF.append(f) for f in files]
 
             # Create the folder in your local machine
-            folder = "/opt/airflow/dags/data/raw/" + aws_bucket_name + "/" + subfolder
+            folder = "/opt/airflow/data/raw/" + aws_bucket_name + "/" + subfolder
             if not os.path.exists(folder):
                 oldmask = os.umask(000)
                 os.makedirs(folder, 0o777)
-                os.umask(odmask)
+                # os.umask(odmask)
 
 
             # Download and extract each file
@@ -176,6 +183,34 @@ with DAG(
         print(total_order_value)
 
     # [END load_function]
+
+    # running the spark job with spark submit operator
+    # spark_job_extract = SparkSubmitOperator(
+    # task_id="spark_transform_job",
+    # application="/opt/airflow/spark/jobs/extract_app.py",
+    # name="extract_app",
+    # conn_id="spark_default",
+    # verbose=1,
+    # conf={"spark.master": config['SPARK_MASTER']},
+    # py_files='/opt/airflow/spark/jobs/extract_job.py',
+    # application_args=[config_file],
+    # jars=config['POSTGRES_DRIVER_JAR'],
+    # driver_class_path=config['POSTGRES_DRIVER_JAR'],
+    # dag=dag)
+
+    # Read
+    spark_job_read_postgres = SparkSubmitOperator(
+    task_id="spark_job_read_postgres",
+    application="/opt/airflow/spark/jobs/spark_etl.py", # Spark application path created in airflow and spark cluster
+    name="read-postgres",
+    conn_id="spark_default",
+    verbose=1,
+    conf={"spark.master":config['SPARK_MASTER']},
+    application_args=[config['POSTGRES_CONNECTION_JDBC_STRING'],config['POSTGRES_USER'],config['POSTGRES_PASSWORD']],
+    jars=config['POSTGRES_DRIVER_JAR'],
+    driver_class_path=config['POSTGRES_DRIVER_JAR'],
+    dag=dag)
+
 
     # [START main_flow]
     extract_task = PythonOperator(

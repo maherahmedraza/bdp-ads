@@ -78,6 +78,9 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+    - ${AIRFLOW_PROJ_DIR:-.}/spark/assets:/opt/airflow/spark/assets
+    - ${AIRFLOW_PROJ_DIR:-.}/spark/jobs:/opt/airflow/spark/jobs
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -104,6 +107,41 @@ services:
       start_period: 5s
     restart: always
 #Setup Apache superset here
+#Setup Apache spark here
+  spark:
+    image: docker.io/bitnami/spark:3.4
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+      - SPARK_MASTER_WEBUI_PORT=8088
+    ports:
+      - '8088:8088'
+      - "7077:7077"
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+      - ${AIRFLOW_PROJ_DIR:-.}/spark/assets:/opt/airflow/spark/assets
+      - ${AIRFLOW_PROJ_DIR:-.}/spark/jobs:/opt/airflow/spark/jobs
+
+  spark-worker:
+    image: docker.io/bitnami/spark:3.4
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+      - ${AIRFLOW_PROJ_DIR:-.}/spark/assets:/opt/airflow/spark/assets
+      - ${AIRFLOW_PROJ_DIR:-.}/spark/jobs:/opt/airflow/spark/jobs
 
   redis:
     image: redis:latest

@@ -1,0 +1,17 @@
+{
+"SPARK_MASTER": "spark://spark:7077",
+"POSTGRES_DRIVER_JAR" : "/opt/airflow/spark/assets/jars/postgresql-42.6.0.jar",
+"CONFIG_FILE" : "/opt/airflow/spark/assets/configs/config.json",
+"AWS_ACCESS_KEY_ID" : "***REMOVED***",
+"AWS_SECRET_ACCESS_KEY" : "***REMOVED***",
+"AWS_BUCKET_NAME" : "jobfeed-data-feeds",
+"AWS_REGION" : "eu-central-1",
+"POSTGRES_PORT" : "5432",
+"POSTGRES_HOST" : "postgres",
+"POSTGRES_CONNECTION_STRING" : "postgresql+psycopg2://airflow:airflow@postgres/airflow",
+"POSTGRES_CONNECTION_JDBC_STRING" : "jdbc:postgresql+psycopg2://postgres/job_ads_db",
+"POSTGRES_DB": "job_ads_db",
+"POSTGRES_USER": "airflow",
+"POSTGRES_PASSWORD": "airflow",
+"POSTGRES_TABLE": "tk_2023_07"
+}
