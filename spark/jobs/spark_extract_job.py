@@ -23,7 +23,6 @@ for file in filesToLoadInDF:
 
 spark = (SparkSession.builder.appName("Spark-Extract")
          .config("spark.local.dir", "/tmp/spark-temp")  # Set local dir
-         .config("sp") # number of executors
          .config("spark.executor.memory", "4g")  # Set executor memory
          .config("spark.driver.memory", "2g")  # Set driver memory
          .config("spark.executor.cores", 4)  # Set number of executor cores
@@ -122,19 +121,19 @@ print("Rows to be inserted ", changes_df_count)
 
 # //////////// TRANSFORM //////////////
 
-# # Drop duplicates
-df = df.dropDuplicates()
-
-# Replace empty string with None
-df = df.withColumn("it_skills", F.when(df.it_skills == "", None).otherwise(df.it_skills)) \
-    .withColumn("language_skills", F.when(df.language_skills == "", None).otherwise(df.language_skills)) \
-    .withColumn("professional_skills", F.when(df.professional_skills == "", None).otherwise(df.professional_skills)) \
-    .withColumn("soft_skills", F.when(df.soft_skills == "", None).otherwise(df.soft_skills)) \
+# # # Drop duplicates
+# df = df.dropDuplicates()
+#
+# # Replace empty string with None
+# df = df.withColumn("it_skills", F.when(df.it_skills == "", None).otherwise(df.it_skills)) \
+#     .withColumn("language_skills", F.when(df.language_skills == "", None).otherwise(df.language_skills)) \
+#     .withColumn("professional_skills", F.when(df.professional_skills == "", None).otherwise(df.professional_skills)) \
+#     .withColumn("soft_skills", F.when(df.soft_skills == "", None).otherwise(df.soft_skills)) \
 
 
 # Write changes to Parquet file "/opt/airflow/data/raw/all_changes_ads.parquet"
 if changes_df_count > 0:
-    changes_df.write.parquet("/opt/airflow/data/all_changes_ads.parquet", mode="overwrite")
+    changes_df.write.parquet("/opt/airflow/data/processed/all_changes_ads.parquet", mode="overwrite")
     print("Changes written to Parquet file")
 
 # Stop the Spark session
