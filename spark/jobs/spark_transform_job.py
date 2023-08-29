@@ -17,7 +17,7 @@ spark = (SparkSession.builder.appName("Spark-Transform")
          .getOrCreate())
 
 # Read parquet file
-df = spark.read.parquet("/opt/airflow/data/all_changes_ads.parquet")
+df = spark.read.parquet("/opt/airflow/data/processed/all_changes_ads.parquet")
 df.printSchema()
 
 # Drop duplicates
@@ -89,7 +89,7 @@ df = df.withColumn("it_skills", F.when(df.it_skills == "", None).otherwise(df.it
     .withColumn("soft_skills", F.when(df.soft_skills == "", None).otherwise(df.soft_skills)) \
 
 # Write changes to Parquet file "/opt/airflow/data/processed/transformed_ads.parquet"
-# df.write.parquet("/opt/airflow/data/processed/transformed_ads.parquet", mode="overwrite")
+df.write.parquet("/opt/airflow/data/final/finalized_ads.parquet", mode="overwrite")
 print("Changes written to Parquet file")
 
 # Stop Spark session

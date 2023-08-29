@@ -23,7 +23,7 @@ spark = (SparkSession.builder.appName("Spark-Load")
          .getOrCreate())
 
 # Read parquet file
-df = spark.read.parquet("/opt/airflow/data/all_changes_ads.parquet")
+df = spark.read.parquet("/opt/airflow/data/final/finalized_ads.parquet")
 # df = spark.read.parquet("/opt/airflow/data/processed/transformed_ads.parquet")
 df.printSchema()
 

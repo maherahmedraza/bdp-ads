@@ -353,18 +353,18 @@ with DAG(
     )
 
     # Transform
-    # spark_job_transform = SparkSubmitOperator(
-    #     task_id="transform_data",
-    #     application="/opt/airflow/spark/jobs/spark_transform_job.py", # Spark application path created in airflow and spark cluster
-    #     name="read-postgres",
-    #     conn_id="spark_default",
-    #     verbose=1,
-    #     conf={"spark.master":config['SPARK_MASTER']},
-    #     application_args=[],
-    #     jars=config['POSTGRES_DRIVER_JAR'],
-    #     driver_class_path=config['POSTGRES_DRIVER_JAR'],
-    #     dag=dag
-    # )
+    spark_job_transform = SparkSubmitOperator(
+        task_id="transform_data",
+        application="/opt/airflow/spark/jobs/spark_transform_job.py", # Spark application path created in airflow and spark cluster
+        name="read-postgres",
+        conn_id="spark_default",
+        verbose=1,
+        conf={"spark.master":config['SPARK_MASTER']},
+        application_args=[],
+        jars=config['POSTGRES_DRIVER_JAR'],
+        driver_class_path=config['POSTGRES_DRIVER_JAR'],
+        dag=dag
+    )
 
     # Load
     spark_job_load = SparkSubmitOperator(
@@ -381,4 +381,4 @@ with DAG(
         dag=dag
     )
 
-    [extract_s3_task, check_db_task] >> spark_job_extract >> spark_job_load
+    [extract_s3_task, check_db_task] >> spark_job_extract >> spark_job_transform >> spark_job_load
