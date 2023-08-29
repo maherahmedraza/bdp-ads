@@ -11,9 +11,13 @@ import gzip
 import os
 import logging
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Date, Boolean, Text, BigInteger
+from sqlalchemy.engine.url import URL
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import ProgrammingError
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
+from datetime import datetime, timedelta
 
 # The DAG object; we'll need this to instantiate a DAG
 from airflow import DAG
@@ -29,34 +33,42 @@ config_file = "/opt/airflow/spark/assets/configs/config.json"
 with open(config_file, 'r') as f:
     config = json.load(f)
 
-# [START instantiate_dag]
+# declare str global var for list of files to load in spark
+s3_files_list = ""
+
+
+default_args = {
+    'owner': 'Maher',
+    'depends_on_past': False,
+    'start_date': pendulum.now(),
+    'depends_on_past': False,
+    'email': ['maherahmedraza@uni-koblenz.de'],
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5)
+}
+
 with DAG(
         "etl_pipeline_dag",
-        # [START default_args]
-        # These args will get passed on to each operator
-        # You can override them on a per-task basis during operator initialization
         default_args={"retries": 2},
         # [END default_args]
-        description="DAG tutorial",
-        schedule=None,
-        start_date=pendulum.datetime(2021, 1, 1, tz="UTC"),
+        description="A simple ETL pipeline using Airflow and Spark.",
+        #start today now
+        start_date=datetime(2023, 8, 27),
+        schedule_interval=timedelta(hours=3),
         catchup=False,
-        tags=["example"],
+        tags=["etl","ads"],
 ) as dag:
-    # [END instantiate_dag]
-    # [START documentation]
-    dag.doc_md = __doc__
-    # [END documentation]
 
-    # [START extract_function]
-    def extract(**kwargs):
-        ti = kwargs["ti"]
 
+    # The function to extract data from S3
+    def extract_s3(**kwargs):
         # Load environment variables
-        aws_access_key_id = "***REMOVED***"
-        aws_secret_access_key = "***REMOVED***"
-        aws_region = "eu-central-1"
-        aws_bucket_name = "jobfeed-data-feeds"
+        aws_access_key_id = config['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key = config['AWS_SECRET_ACCESS_KEY']
+        aws_region = config['AWS_REGION']
+        aws_bucket_name = config['AWS_BUCKET_NAME']
 
         # Creating Boto3 Session
         session = boto3.Session(
@@ -65,7 +77,7 @@ with DAG(
             region_name=aws_region
         )
 
-        logging.info("S3 session created", session)
+        # logging.info("S3 session created", session)
         s3 = session.client('s3')
 
         # Get the list of objects in the S3 bucket
@@ -76,7 +88,7 @@ with DAG(
         #Number of Months to download
         months = 6
         # Number of files per month to download
-        files_per_month = 1
+        files_per_month = 2
         # current project directory parent path
         ROOT_DIR = os.path.abspath(os.pardir)
 
@@ -134,125 +146,239 @@ with DAG(
 
         print(filesToLoadInDF)
 
+        s3_files_list = ','.join(filesToLoadInDF)
+        print(s3_files_list)
+
+        return s3_files_list
+        # Pushing list of files path to xcom
+        # ti = kwargs["ti"]
+        # ti.xcom_push("filesToLoadInDF", filesToLoadInDF)
+
+
+    # Create a function to check if the database and table exists
+    # if not exists than create
+    def check_db(**kwargs):
+
         # Create a connection to Postgres
-        connection_string = "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db"
+        # connection_string = "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db"
+        connection_string = config['POSTGRES_CONNECTION_STRING']
+        # TODO : Write code check DB and create DB if not esists
+
         engine = create_engine(connection_string, isolation_level="AUTOCOMMIT")
         print(engine)
         pgconn = engine.connect()
         print(pgconn)
 
-        #Create spark session
-        # spark = SparkSession.builder \
-        #     .master("local") \
-        #     .appName("DE-Project") \
-        #     .getOrCreate()
-        # # .config("spark.sql.shuffle.partitions", "50") \
-        # # .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
-        # print(spark)
-        # df = spark.read.json(filesToLoadInDF)
-        # df.printSchema()
+        metadata = MetaData(bind=pgconn)
+
+        table_name = config["POSTGRES_TABLE"]
+        print(table_name)
+        if pgconn.dialect.has_table(pgconn, table_name):
+            print('Table already exists.')
+        else:
+            print('Creating table...')
+            table = Table(table_name, metadata,
+                          Column('id', Integer, primary_key=True),
+                          Column('job_id', String(32)),
+                          Column('posting_count', Integer),
+                          Column('source_website_count', Integer),
+                          Column('date', Date),
+                          Column('sequence_number', BigInteger),
+                          Column('expiration_date', Date),
+                          Column('expired', Boolean),
+                          Column('duration', Integer),
+                          Column('source_url', String(255)),
+                          Column('source_website', String(255)),
+                          Column('source_type', String(2)),
+                          # Column('duplicate', Boolean),
+                          # Column('first_posting', Boolean),
+                          Column('posting_id', String(32)),
+                          Column('duplicate_on_jobsite', Boolean),
+                          Column('via_intermediary', Boolean),
+                          Column('language', String(3)),
+                          Column('job_title', String(255)),
+                          Column('profession', String(4)),
+                          Column('profession_group', String(4)),
+                          Column('profession_class', String(4)),
+                          Column('profession_isco_code', String(10)),
+                          Column('location', String(5)),
+                          Column('location_name', String(255)),
+                          Column('location_coordinates', String(30)),
+                          Column('location_remote_possible', Boolean),
+                          Column('region', String(2)),
+                          Column('education_level', String(2)),
+                          Column('advertiser_name', String(255)),
+                          Column('advertiser_type', String(2)),
+                          Column('advertiser_street', String(255)),
+                          Column('advertiser_postal_code', String(15)),
+                          Column('advertiser_location', String(255)),
+                          Column('advertiser_phone', String(255)),
+                          Column('available_contact_fields', String(100)),
+                          # Column('organization', Integer),
+                          Column('organization_name', String(255)),
+                          Column('organization_industry', String(2)),
+                          Column('organization_activity', String(10)),
+                          Column('organization_size', String(2)),
+                          Column('organization_address', String(255)),
+                          Column('organization_street_number', String(100)),
+                          Column('organization_postal_code', String(5)),
+                          Column('organization_location', String(5)),
+                          Column('organization_location_name', String(255)),
+                          Column('organization_region', String(2)),
+                          Column('contract_type', String(2)),
+                          Column('working_hours_type', String(1)),
+                          Column('hours_per_week_from', Integer),
+                          Column('hours_per_week_to', Integer),
+                          Column('employment_type', String(1)),
+                          Column('full_text', Text),
+                          Column('job_description', Text),
+                          Column('candidate_description', Text),
+                          Column('conditions_description', Text),
+                          # Column('professional_skill_terms', Text),
+                          Column('soft_skills', Text),
+                          Column('professional_skills', Text),
+                          Column('advertiser_house_number', String(15)),
+                          Column('advertiser_email', String(255)),
+                          Column('advertiser_website', String(255)),
+                          Column('advertiser_contact_person', String(255)),
+                          Column('advertiser_reference_number', String(255)),
+                          Column('application_description', Text),
+                          Column('organization_website', String(100)),
+                          Column('employer_description', Text),
+                          Column('language_skills', Text),
+                          Column('it_skills', Text),
+                          Column('organization_linkedin_id', String(255)),
+                          Column('organization_national_id', String(25)),
+                          Column('experience_years_from', Integer),
+                          Column('salary', Integer),
+                          Column('salary_from', Integer),
+                          Column('salary_to', Integer),
+                          Column('experience_years_to', Integer),
+                          Column('advertiser_spend', Integer),
+                          Column('apply_url', String(255)),
+                          Column('experience_level', String(17)),
+                          Column('location_postal_code', String(7)),
+                          Column('profession_kldb_code', String(5)),
+                          Column('profession_onet_2019_code', String(10)),
+                          Column('salary_from_rate', String(10)),
+                          Column('salary_time_scale', String(1)),
+                          Column('salary_to_rate', String(10))
+                          )
+
+        metadata.create_all(engine)
 
 
-        data_string = '{"1001": 301.27, "1002": 433.21, "1003": 502.22}'
-        ti.xcom_push("order_data", data_string)
+        # # Define the PostgreSQL connection parameters
+        # db_config = {
+        #     'drivername': 'postgresql+psycopg2',
+        #     'username': config['POSTGRES_USER'],
+        #     'password': config['POSTGRES_PASSWORD'],
+        #     'host': config['POSTGRES_HOST'],
+        #     # 'port': config[''],
+        # }
+        #
+        # # Create the SQLAlchemy engine
+        # db_url = URL(**db_config)
+        # engine = create_engine(db_url)
+        #
+        # # Create a session
+        # Session = sessionmaker(bind=engine)
+        # session = Session()
+        #
+        # # Check if the "ads" database exists, and create it if not
+        # try:
+        #     engine.execute("USE "+config['POSTGRES_DB'])
+        #     logging.info("Database Exists")
+        # except ProgrammingError:
+        #     engine.execute("CREATE DATABASE "+ config['POSTGRES_DB'])
+        #     engine.execute("USE "+config['POSTGRES_DB'])
+        #     logging.info("Database does not Exists. Creating db...")
 
-    # [END extract_function]
 
     # [START transform_function]
-    def transform(**kwargs):
-        ti = kwargs["ti"]
-        extract_data_string = ti.xcom_pull(task_ids="extract", key="order_data")
-        order_data = json.loads(extract_data_string)
-
-        total_order_value = 0
-        for value in order_data.values():
-            total_order_value += value
-
-        total_value = {"total_order_value": total_order_value}
-        total_value_json_string = json.dumps(total_value)
-        ti.xcom_push("total_order_value", total_value_json_string)
-
-    # [END transform_function]
-
-    # [START load_function]
-    def load(**kwargs):
-        ti = kwargs["ti"]
-        total_value_string = ti.xcom_pull(task_ids="transform", key="total_order_value")
-        total_order_value = json.loads(total_value_string)
-
-        print(total_order_value)
+    # def transform(**kwargs):
+    #     ti = kwargs["ti"]
+    #     extract_data_string = ti.xcom_pull(task_ids="extract", key="order_data")
+    #     order_data = json.loads(extract_data_string)
+    #
+    #     total_order_value = 0
+    #     for value in order_data.values():
+    #         total_order_value += value
+    #
+    #     total_value = {"total_order_value": total_order_value}
+    #     total_value_json_string = json.dumps(total_value)
+    #     ti.xcom_push("total_order_value", total_value_json_string)
+    #
+    # # [END transform_function]
+    #
+    # # [START load_function]
+    # def load(**kwargs):
+    #     ti = kwargs["ti"]
+    #     total_value_string = ti.xcom_pull(task_ids="transform", key="total_order_value")
+    #     total_order_value = json.loads(total_value_string)
+    #
+    #     print(total_order_value)
 
     # [END load_function]
 
-    # running the spark job with spark submit operator
-    # spark_job_extract = SparkSubmitOperator(
-    # task_id="spark_transform_job",
-    # application="/opt/airflow/spark/jobs/extract_app.py",
-    # name="extract_app",
-    # conn_id="spark_default",
-    # verbose=1,
-    # conf={"spark.master": config['SPARK_MASTER']},
-    # py_files='/opt/airflow/spark/jobs/extract_job.py',
-    # application_args=[config_file],
-    # jars=config['POSTGRES_DRIVER_JAR'],
-    # driver_class_path=config['POSTGRES_DRIVER_JAR'],
-    # dag=dag)
+    # [Start extract_s3]
+    extract_s3_task = PythonOperator(
+        task_id="extract_s3",
+        python_callable=extract_s3,
+        dag=dag
+    )
+    # [End extract_s3]
+
+    # [Start check_db]
+    check_db_task = PythonOperator(
+        task_id="check_db",
+        python_callable=check_db,
+        dag=dag
+    )
+    # [End check_db]
 
     # Read
-    spark_job_read_postgres = SparkSubmitOperator(
-    task_id="spark_job_read_postgres",
-    application="/opt/airflow/spark/jobs/spark_etl.py", # Spark application path created in airflow and spark cluster
-    name="read-postgres",
-    conn_id="spark_default",
-    verbose=1,
-    conf={"spark.master":config['SPARK_MASTER']},
-    application_args=[config['POSTGRES_CONNECTION_JDBC_STRING'],config['POSTGRES_USER'],config['POSTGRES_PASSWORD']],
-    jars=config['POSTGRES_DRIVER_JAR'],
-    driver_class_path=config['POSTGRES_DRIVER_JAR'],
-    dag=dag)
-
-
-    # [START main_flow]
-    extract_task = PythonOperator(
-        task_id="extract",
-        python_callable=extract,
-    )
-    extract_task.doc_md = dedent(
-        """\
-    #### Extract task
-    A simple Extract task to get data ready for the rest of the data pipeline.
-    In this case, getting data is simulated by reading from a hardcoded JSON string.
-    This data is then put into xcom, so that it can be processed by the next task.
-    """
+    spark_job_extract = SparkSubmitOperator(
+        task_id="Read_and_Compare_data",
+        application="/opt/airflow/spark/jobs/spark_extract_job.py", # Spark application path created in airflow and spark cluster
+        name="read-postgres",
+        conn_id="spark_default",
+        verbose=1,
+        conf={"spark.master":config['SPARK_MASTER']},
+        application_args=[config['POSTGRES_CONNECTION_JDBC_STRING'],config['POSTGRES_USER'],
+                          config['POSTGRES_PASSWORD'], "{{ ti.xcom_pull(task_ids='extract_s3') }}"],
+        jars=config['POSTGRES_DRIVER_JAR'],
+        driver_class_path=config['POSTGRES_DRIVER_JAR'],
+        dag=dag
     )
 
-    transform_task = PythonOperator(
-        task_id="transform",
-        python_callable=transform,
-    )
-    transform_task.doc_md = dedent(
-        """\
-    #### Transform task
-    A simple Transform task which takes in the collection of order data from xcom
-    and computes the total order value.
-    This computed value is then put into xcom, so that it can be processed by the next task.
-    """
+    # Transform
+    # spark_job_transform = SparkSubmitOperator(
+    #     task_id="transform_data",
+    #     application="/opt/airflow/spark/jobs/spark_transform_job.py", # Spark application path created in airflow and spark cluster
+    #     name="read-postgres",
+    #     conn_id="spark_default",
+    #     verbose=1,
+    #     conf={"spark.master":config['SPARK_MASTER']},
+    #     application_args=[],
+    #     jars=config['POSTGRES_DRIVER_JAR'],
+    #     driver_class_path=config['POSTGRES_DRIVER_JAR'],
+    #     dag=dag
+    # )
+
+    # Load
+    spark_job_load = SparkSubmitOperator(
+        task_id="load_data",
+        application="/opt/airflow/spark/jobs/spark_load_job.py", # Spark application path created in airflow and spark cluster
+        name="read-postgres",
+        conn_id="spark_default",
+        verbose=1,
+        conf={"spark.master":config['SPARK_MASTER']},
+        application_args=[config['POSTGRES_CONNECTION_JDBC_STRING'],config['POSTGRES_USER'],
+                          config['POSTGRES_PASSWORD'], config['POSTGRES_TABLE']],
+        jars=config['POSTGRES_DRIVER_JAR'],
+        driver_class_path=config['POSTGRES_DRIVER_JAR'],
+        dag=dag
     )
 
-    load_task = PythonOperator(
-        task_id="load",
-        python_callable=load,
-    )
-    load_task.doc_md = dedent(
-        """\
-    #### Load task
-    A simple Load task which takes in the result of the Transform task, by reading it
-    from xcom and instead of saving it to end user review, just prints it out.
-    """
-    )
-
-    extract_task >> transform_task >> load_task
-
-# [END main_flow]
-
-# [END tutorial]
+    [extract_s3_task, check_db_task] >> spark_job_extract >> spark_job_load

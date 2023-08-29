@@ -106,7 +106,7 @@ services:
       retries: 5
       start_period: 5s
     restart: always
-#Setup Apache superset here
+#Setup Apache superset 2.1.0 here
 #Setup Apache spark here
   spark:
     image: docker.io/bitnami/spark:3.4

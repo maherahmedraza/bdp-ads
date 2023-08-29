@@ -10,6 +10,7 @@ USER root
 RUN apt-get update \
     && apt-get install jing -y \
     && apt-get install wget -y \
+    && apt-get install nano -y \
   && apt-get install -y --no-install-recommends \
          openjdk-17-jre-headless \
   && apt-get autoremove -yqq --purge \
@@ -42,23 +43,30 @@ ENV PATH $PATH:/usr/local/spark/bin
 
 
 # Setup Hadopp install and env vars
-RUN echo "https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION_EXPLICIT}/hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz"
-RUN cd "/tmp" && \
-        wget --no-verbose "https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION_EXPLICIT}/hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz" && \
-        tar -xvzf "hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz" && \
-        mkdir -p "/usr/local/hadoop" && \
-        cp -a "hadoop-${HADOOP_VERSION_EXPLICIT}/." "/usr/local/hadoop/" && \
-        rm "hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz"
+#RUN echo "https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION_EXPLICIT}/hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz"
+#RUN cd "/tmp" && \
+#        wget --no-verbose "https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION_EXPLICIT}/hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz" && \
+#        tar -xvzf "hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz" && \
+#        mkdir -p "/usr/local/hadoop" && \
+#        cp -a "hadoop-${HADOOP_VERSION_EXPLICIT}/." "/usr/local/hadoop/" && \
+#        rm "hadoop-${HADOOP_VERSION_EXPLICIT}.tar.gz"
+#
+## Create HADOOP_HOME env var
+#ENV HADOOP_HOME /usr/local/hadoop
+## set HADOOP_CONF_DIR
+#ENV HADOOP_CONF_DIR $HADOOP_HOME/etc/hadoop
 
-# Create HADOOP_HOME env var
-ENV HADOOP_HOME /usr/local/hadoop
-# set HADOOP_CONF_DIR
-ENV HADOOP_CONF_DIR $HADOOP_HOME/etc/hadoop
-
+# Create symbolic link for Hadoop configuration
+RUN mkdir -p $SPARK_HOME/conf
+ENV HADOOP_CONF_DIR $SPARK_HOME/conf/yarn-conf
+#RUN ln -s $HADOOP_CONF_DIR $SPARK_HOME/conf/yarn-conf
 
 USER airflow
 
 # Set JAVA_HOME
 ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk-amd64
+RUN export JAVA_HOME
+
+# Install Python packages
 COPY ./requirements.txt /
 RUN pip install -r /requirements.txt
