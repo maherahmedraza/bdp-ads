@@ -68,5 +68,5 @@ ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk-amd64
 RUN export JAVA_HOME
 
 # Install Python packages
-COPY ./requirements.txt /
-RUN pip install -r /requirements.txt
+COPY ./requirements-docker.txt /
+RUN pip install -r /requirements-docker.txt
