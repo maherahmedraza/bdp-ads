@@ -22,12 +22,16 @@ for file in filesToLoadInDF:
 #          .getOrCreate())
 
 spark = (SparkSession.builder.appName("Spark-Extract")
+         # .master("spark://spark:7077")  # Run Spark locally with all cores?
+         # # .config("spark.driver.host", "spark")  # Set driver host
+         # .config("spark.driver.cores", 2)  # Set driver cores
+         # .config("spark.executor.instances", 1)  # Set number of executors
          .config("spark.local.dir", "/tmp/spark-temp")  # Set local dir
          .config("spark.executor.memory", "4g")  # Set executor memory
          .config("spark.driver.memory", "2g")  # Set driver memory
-         .config("spark.executor.cores", 4)  # Set number of executor cores
-         .config("spark.default.parallelism", 100)  # Set default parallelism
-         .config("spark.sql.shuffle.partitions", 100)  # Set shuffle partitions
+         .config("spark.executor.cores", 2)  # Set number of executor cores
+         .config("spark.default.parallelism", 64)  # Set default parallelism
+         .config("spark.sql.shuffle.partitions", 64)  # Set shuffle partitions
          .config("spark.memory.offHeap.enabled", True)  # Enable off-heap memory
          .config("spark.memory.offHeap.size", "1g")  # Set off-heap memory size
          .config("spark.sql.autoBroadcastJoinThreshold", -1)  # Disable auto-broadcasting
@@ -99,6 +103,8 @@ postgres_data = (
     .option("dbtable", where_clause)
     .option("user", postgres_user)
     .option("password", postgres_pwd)
+    .option("spark.driver.extraClassPath", "/opt/airflow/spark/assets/jars/postgresql-42.6.0.jar")
+    .option("spark.executor.extraClassPath", "/opt/airflow/spark/assets/jars/postgresql-42.6.0.jar")
     .option("driver", "org.postgresql.Driver")
     .load()
 )

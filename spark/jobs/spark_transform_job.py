@@ -3,11 +3,15 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 # Create spark session
-spark = (SparkSession.builder.appName("Spark-Transform")
+spark = (SparkSession.builder.appName("Spark-Extract")
+         # .master("spark://spark:7077")  # Run Spark locally with all cores
+         # # .config("spark.driver.host", "spark")  # Set driver host
+         # .config("spark.driver.cores", 2)  # Set driver cores
+         # .config("spark.executor.instances", 1)  # Set number of executors
          .config("spark.local.dir", "/tmp/spark-temp")  # Set local dir
          .config("spark.executor.memory", "4g")  # Set executor memory
          .config("spark.driver.memory", "2g")  # Set driver memory
-         .config("spark.executor.cores", 4)  # Set number of executor cores
+         .config("spark.executor.cores", 2)  # Set number of executor cores
          .config("spark.default.parallelism", 100)  # Set default parallelism
          .config("spark.sql.shuffle.partitions", 100)  # Set shuffle partitions
          .config("spark.memory.offHeap.enabled", True)  # Enable off-heap memory

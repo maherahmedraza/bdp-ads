@@ -6,7 +6,7 @@
 "AWS_SECRET_ACCESS_KEY" : "***REMOVED***",
 "AWS_BUCKET_NAME" : "jobfeed-data-feeds",
 "AWS_REGION" : "eu-central-1",
-"POSTGRES_PORT" : "5432",
+"POSTGRES_PORT" : "5454",
 "POSTGRES_HOST" : "postgres",
 "POSTGRES_CONNECTION_STRING" : "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db",
 "POSTGRES_CONNECTION_JDBC_STRING" : "jdbc:postgresql://postgres/job_ads_db",
