@@ -87,7 +87,7 @@ with DAG(
         #Number of Months to download
         months = 6
         # Number of files per month to download
-        files_per_month = 3
+        files_per_month = 1
         # current project directory parent path
         ROOT_DIR = os.path.abspath(os.pardir)
 
