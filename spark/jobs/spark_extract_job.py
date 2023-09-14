@@ -13,9 +13,11 @@ postgres_pwd = sys.argv[3]
 filesToLoadInDF = sys.argv[4].split(',')
 print(f"filesToLoadInDF {sys.argv[4]} \n {len(filesToLoadInDF)}", )
 
+# Print files to load
 for file in filesToLoadInDF:
     print(file)
 
+# Create spark session
 spark = (SparkSession.builder.appName("Spark-Extract")
          # .master("spark://spark:7077")  # Run Spark locally with all cores?
          # # .config("spark.driver.host", "spark")  # Set driver host
@@ -38,9 +40,21 @@ df.printSchema()
 print("Rows loaded from S3 ", df.count())
 
 # Load data from Postgres
-six_months_ago = (datetime.now() - timedelta(days=185)).strftime("%Y-%m-%d")
-where_clause = f"(SELECT * FROM tk_2023_07 WHERE date >= '{six_months_ago}') as tk"
+today = datetime.now()
+end_date = today.replace(day=1) - timedelta(days=1)
+start_date = end_date - timedelta(days=180)  # 180 days for six months
 
+# Adjust the start_date to the first day of the month
+start_date = start_date.replace(day=1)
+
+start_date_str = start_date.strftime("%Y-%m-%d")
+print(start_date_str)
+end_date_str = end_date.strftime("%Y-%m-%d")
+print(end_date_str)
+
+where_clause = f"(SELECT * FROM tk_2023_07 WHERE date >= '{start_date_str}' AND date <= '{end_date_str}') as tk"
+
+# Load data from Postgres
 postgres_data = (
     spark.read
     .format("jdbc")
