@@ -1,6 +1,6 @@
-import sys
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+import pyspark.sql.types as T
 
 # Create spark session
 spark = (SparkSession.builder.appName("Spark-Transform")
