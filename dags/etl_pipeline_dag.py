@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# [START tutorial]
 # [START import_module]
 import json
 from textwrap import dedent
@@ -88,7 +87,7 @@ with DAG(
         #Number of Months to download
         months = 6
         # Number of files per month to download
-        files_per_month = 2
+        files_per_month = 3
         # current project directory parent path
         ROOT_DIR = os.path.abspath(os.pardir)
 
@@ -155,7 +154,7 @@ with DAG(
         # ti.xcom_push("filesToLoadInDF", filesToLoadInDF)
 
 
-    # Create a function to check if the database and table exists
+    # check if table exists
     # if not exists than create
     def check_db(**kwargs):
 
@@ -268,62 +267,9 @@ with DAG(
         metadata.create_all(engine)
 
 
-        # # Define the PostgreSQL connection parameters
-        # db_config = {
-        #     'drivername': 'postgresql+psycopg2',
-        #     'username': config['POSTGRES_USER'],
-        #     'password': config['POSTGRES_PASSWORD'],
-        #     'host': config['POSTGRES_HOST'],
-        #     # 'port': config[''],
-        # }
-        #
-        # # Create the SQLAlchemy engine
-        # db_url = URL(**db_config)
-        # engine = create_engine(db_url)
-        #
-        # # Create a session
-        # Session = sessionmaker(bind=engine)
-        # session = Session()
-        #
-        # # Check if the "ads" database exists, and create it if not
-        # try:
-        #     engine.execute("USE "+config['POSTGRES_DB'])
-        #     logging.info("Database Exists")
-        # except ProgrammingError:
-        #     engine.execute("CREATE DATABASE "+ config['POSTGRES_DB'])
-        #     engine.execute("USE "+config['POSTGRES_DB'])
-        #     logging.info("Database does not Exists. Creating db...")
-
-
-    # [START transform_function]
-    # def transform(**kwargs):
-    #     ti = kwargs["ti"]
-    #     extract_data_string = ti.xcom_pull(task_ids="extract", key="order_data")
-    #     order_data = json.loads(extract_data_string)
-    #
-    #     total_order_value = 0
-    #     for value in order_data.values():
-    #         total_order_value += value
-    #
-    #     total_value = {"total_order_value": total_order_value}
-    #     total_value_json_string = json.dumps(total_value)
-    #     ti.xcom_push("total_order_value", total_value_json_string)
-    #
-    # # [END transform_function]
-    #
-    # # [START load_function]
-    # def load(**kwargs):
-    #     ti = kwargs["ti"]
-    #     total_value_string = ti.xcom_pull(task_ids="transform", key="total_order_value")
-    #     total_order_value = json.loads(total_value_string)
-    #
-    #     print(total_order_value)
-
-    # [END load_function]
-
     # [Start extract_s3]
     extract_s3_task = PythonOperator(
-        task_id="extract_s3",
+        task_id="download_s3_data",
         python_callable=extract_s3,
         dag=dag
     )
@@ -339,9 +285,9 @@ with DAG(
 
     # Read
     spark_job_extract = SparkSubmitOperator(
-        task_id="Read_and_Compare_data",
+        task_id="extract_job",
         application="/opt/airflow/spark/jobs/spark_extract_job.py", # Spark application path created in airflow and spark cluster
-        name="read-postgres",
+        name="Load",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
@@ -354,9 +300,9 @@ with DAG(
 
     # Transform
     spark_job_transform = SparkSubmitOperator(
-        task_id="transform_data",
+        task_id="transform_job",
         application="/opt/airflow/spark/jobs/spark_transform_job.py", # Spark application path created in airflow and spark cluster
-        name="read-postgres",
+        name="Transform",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
@@ -368,9 +314,9 @@ with DAG(
 
     # Load
     spark_job_load = SparkSubmitOperator(
-        task_id="load_data",
+        task_id="load_job",
         application="/opt/airflow/spark/jobs/spark_load_job.py", # Spark application path created in airflow and spark cluster
-        name="read-postgres",
+        name="Load",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
