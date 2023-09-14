@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-# [START import_module]
+# Import necessary modules
 import json
-from textwrap import dedent
-
 import pendulum
 import boto3
 import gzip
@@ -18,24 +16,19 @@ import pyspark.sql.functions as F
 from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
 from datetime import datetime, timedelta
 
-# The DAG object; we'll need this to instantiate a DAG
+# Import DAG and Operators from Airflow
 from airflow import DAG
-
-# Operators; we need this to operate!
 from airflow.operators.python import PythonOperator
 
-# [END import_module]
-
-
-# spark_master = "spark://spark:7077"
+# Load configuration from a JSON file
 config_file = "/opt/airflow/spark/assets/configs/config.json"
 with open(config_file, 'r') as f:
     config = json.load(f)
 
-# declare str global var for list of files to load in spark
+# Declare a global variable for a list of files to load in Spark
 s3_files_list = ""
 
-
+# Define default DAG arguments
 default_args = {
     'owner': 'Maher',
     'depends_on_past': False,
@@ -48,21 +41,31 @@ default_args = {
     'retry_delay': timedelta(minutes=5)
 }
 
+# Create a DAG object
 with DAG(
         "etl_pipeline_dag",
-        default_args={"retries": 2},
-        # [END default_args]
+        default_args=default_args,
         description="A simple ETL pipeline using Airflow and Spark.",
-        #start today now
         start_date=datetime(2023, 8, 27),
         schedule_interval=timedelta(hours=3),
         catchup=False,
-        tags=["etl","ads"],
+        tags=["etl", "ads"],
 ) as dag:
-
 
     # The function to extract data from S3
     def extract_s3(**kwargs):
+        """
+        Extracts data from S3 and stores it locally.
+
+        This function downloads data from an S3 bucket and extracts it locally.
+
+        Args:
+            kwargs: Airflow keyword arguments.
+
+        Returns:
+            s3_files_list (str): A comma-separated list of downloaded file paths.
+
+        """
         # Load environment variables
         aws_access_key_id = config['AWS_ACCESS_KEY_ID']
         aws_secret_access_key = config['AWS_SECRET_ACCESS_KEY']
@@ -76,15 +79,13 @@ with DAG(
             region_name=aws_region
         )
 
-        # logging.info("S3 session created", session)
         s3 = session.client('s3')
 
         # Get the list of objects in the S3 bucket
         prefix = 'DE/monthly/'
         response = s3.list_objects_v2(Bucket=aws_bucket_name, Prefix=prefix, Delimiter='/')
-        logging.info("S3 response", response)
 
-        #Number of Months to download
+        # Number of Months to download
         months = 6
         # Number of files per month to download
         files_per_month = 1
@@ -96,7 +97,6 @@ with DAG(
         # Get the last N subfolders - N = months of data to download
         subfolders = subfolders[-months:]
 
-
         filesToLoadInDF = []
         # Download files from each subfolder
         for subfolder in subfolders:
@@ -107,15 +107,11 @@ with DAG(
             # Only get the first N files
             files = files[:files_per_month]
 
-            # filesToLoadInDF = [filesToLoadInDF.append(f) for f in files]
-
             # Create the folder in your local machine
             folder = "/opt/airflow/data/raw/" + aws_bucket_name + "/" + subfolder
             if not os.path.exists(folder):
                 oldmask = os.umask(000)
                 os.makedirs(folder, 0o777)
-                # os.umask(odmask)
-
 
             # Download and extract each file
             for file in files:
@@ -149,15 +145,24 @@ with DAG(
         print(s3_files_list)
 
         return s3_files_list
-        # Pushing list of files path to xcom
-        # ti = kwargs["ti"]
-        # ti.xcom_push("filesToLoadInDF", filesToLoadInDF)
 
 
     # check if table exists
     # if not exists than create
     def check_db(**kwargs):
+        """
+        Checks if a database table exists and creates it if not.
 
+        This function checks if a database table exists. If it does not exist,
+        it creates the table based on the defined schema.
+
+        Args:
+            kwargs: Airflow keyword arguments.
+
+        Returns:
+            None
+
+        """
         # Create a connection to Postgres
         # connection_string = "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db"
         connection_string = config['POSTGRES_CONNECTION_STRING']
