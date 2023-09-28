@@ -27,16 +27,20 @@ spark = (SparkSession.builder.appName("Spark-Load")
 df = spark.read.parquet("/opt/airflow/data/final/finalized_ads.parquet")
 # df = spark.read.parquet("/opt/airflow/data/processed/transformed_ads.parquet")
 df.printSchema()
-
-# write data to postgres database
-df.write.format("jdbc") \
-    .option("url", postgres_jdbc_url) \
-    .option("dbtable", postgres_table) \
-    .option("user", postgres_user) \
-    .option("password", postgres_pwd) \
-    .option("driver", "org.postgresql.Driver") \
-    .mode("append") \
-    .save()
+# Check if the DataFrame is empty
+if df.isEmpty():
+    # Handle the case where the DataFrame is empty
+    print("DataFrame is empty. No further processing needed.")
+else:
+    # write data to postgres database
+    df.write.format("jdbc") \
+        .option("url", postgres_jdbc_url) \
+        .option("dbtable", postgres_table) \
+        .option("user", postgres_user) \
+        .option("password", postgres_pwd) \
+        .option("driver", "org.postgresql.Driver") \
+        .mode("append") \
+        .save()
 
 # Stop spark session
 spark.stop()

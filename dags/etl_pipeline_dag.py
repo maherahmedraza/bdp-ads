@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-# Import necessary modules
+# [START tutorial]
+# [START import_module]
 import json
+from textwrap import dedent
+
 import pendulum
 import boto3
 import gzip
@@ -16,19 +19,24 @@ import pyspark.sql.functions as F
 from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
 from datetime import datetime, timedelta
 
-# Import DAG and Operators from Airflow
+# The DAG object; we'll need this to instantiate a DAG
 from airflow import DAG
+
+# Operators; we need this to operate!
 from airflow.operators.python import PythonOperator
 
-# Load configuration from a JSON file
+# [END import_module]
+
+
+# spark_master = "spark://spark:7077"
 config_file = "/opt/airflow/spark/assets/configs/config.json"
 with open(config_file, 'r') as f:
     config = json.load(f)
 
-# Declare a global variable for a list of files to load in Spark
+# declare str global var for list of files to load in spark
 s3_files_list = ""
 
-# Define default DAG arguments
+
 default_args = {
     'owner': 'Maher',
     'depends_on_past': False,
@@ -41,31 +49,21 @@ default_args = {
     'retry_delay': timedelta(minutes=5)
 }
 
-# Create a DAG object
 with DAG(
         "etl_pipeline_dag",
-        default_args=default_args,
+        default_args={"retries": 2},
+        # [END default_args]
         description="A simple ETL pipeline using Airflow and Spark.",
+        #start today now
         start_date=datetime(2023, 8, 27),
         schedule_interval=timedelta(hours=3),
         catchup=False,
-        tags=["etl", "ads"],
+        tags=["etl","ads"],
 ) as dag:
+
 
     # The function to extract data from S3
     def extract_s3(**kwargs):
-        """
-        Extracts data from S3 and stores it locally.
-
-        This function downloads data from an S3 bucket and extracts it locally.
-
-        Args:
-            kwargs: Airflow keyword arguments.
-
-        Returns:
-            s3_files_list (str): A comma-separated list of downloaded file paths.
-
-        """
         # Load environment variables
         aws_access_key_id = config['AWS_ACCESS_KEY_ID']
         aws_secret_access_key = config['AWS_SECRET_ACCESS_KEY']
@@ -79,16 +77,18 @@ with DAG(
             region_name=aws_region
         )
 
+        # logging.info("S3 session created", session)
         s3 = session.client('s3')
 
         # Get the list of objects in the S3 bucket
         prefix = 'DE/monthly/'
         response = s3.list_objects_v2(Bucket=aws_bucket_name, Prefix=prefix, Delimiter='/')
+        logging.info("S3 response", response)
 
-        # Number of Months to download
+        #Number of Months to download
         months = 6
         # Number of files per month to download
-        files_per_month = 1
+        files_per_month = 2
         # current project directory parent path
         ROOT_DIR = os.path.abspath(os.pardir)
 
@@ -96,6 +96,7 @@ with DAG(
         subfolders = [obj['Prefix'] for obj in response['CommonPrefixes']]
         # Get the last N subfolders - N = months of data to download
         subfolders = subfolders[-months:]
+
 
         filesToLoadInDF = []
         # Download files from each subfolder
@@ -107,11 +108,15 @@ with DAG(
             # Only get the first N files
             files = files[:files_per_month]
 
+            # filesToLoadInDF = [filesToLoadInDF.append(f) for f in files]
+
             # Create the folder in your local machine
             folder = "/opt/airflow/data/raw/" + aws_bucket_name + "/" + subfolder
             if not os.path.exists(folder):
                 oldmask = os.umask(000)
                 os.makedirs(folder, 0o777)
+                # os.umask(odmask)
+
 
             # Download and extract each file
             for file in files:
@@ -145,24 +150,15 @@ with DAG(
         print(s3_files_list)
 
         return s3_files_list
+        # Pushing list of files path to xcom
+        # ti = kwargs["ti"]
+        # ti.xcom_push("filesToLoadInDF", filesToLoadInDF)
 
 
-    # check if table exists
+    # Create a function to check if the database and table exists
     # if not exists than create
     def check_db(**kwargs):
-        """
-        Checks if a database table exists and creates it if not.
 
-        This function checks if a database table exists. If it does not exist,
-        it creates the table based on the defined schema.
-
-        Args:
-            kwargs: Airflow keyword arguments.
-
-        Returns:
-            None
-
-        """
         # Create a connection to Postgres
         # connection_string = "postgresql+psycopg2://airflow:airflow@postgres/job_ads_db"
         connection_string = config['POSTGRES_CONNECTION_STRING']
@@ -274,7 +270,7 @@ with DAG(
 
     # [Start extract_s3]
     extract_s3_task = PythonOperator(
-        task_id="download_s3_data",
+        task_id="extract_s3",
         python_callable=extract_s3,
         dag=dag
     )
@@ -290,9 +286,9 @@ with DAG(
 
     # Read
     spark_job_extract = SparkSubmitOperator(
-        task_id="extract_job",
+        task_id="Read_and_Compare_data",
         application="/opt/airflow/spark/jobs/spark_extract_job.py", # Spark application path created in airflow and spark cluster
-        name="Load",
+        name="read-postgres",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
@@ -305,9 +301,9 @@ with DAG(
 
     # Transform
     spark_job_transform = SparkSubmitOperator(
-        task_id="transform_job",
+        task_id="transform_data",
         application="/opt/airflow/spark/jobs/spark_transform_job.py", # Spark application path created in airflow and spark cluster
-        name="Transform",
+        name="read-postgres",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
@@ -319,9 +315,9 @@ with DAG(
 
     # Load
     spark_job_load = SparkSubmitOperator(
-        task_id="load_job",
+        task_id="load_data",
         application="/opt/airflow/spark/jobs/spark_load_job.py", # Spark application path created in airflow and spark cluster
-        name="Load",
+        name="read-postgres",
         conn_id="spark_default",
         verbose=1,
         conf={"spark.master":config['SPARK_MASTER']},
