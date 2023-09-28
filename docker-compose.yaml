@@ -97,17 +97,18 @@ services:
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     ports:
-        - "5432:5432"
+      - "5454:5432"
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+      - ${AIRFLOW_PROJ_DIR:-.}/postgres:/init-db.sh
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
       retries: 5
       start_period: 5s
     restart: always
-#Setup Apache superset 2.1.0 here
-#Setup Apache spark here
+  #Setup Apache superset 2.1.0 here
+  #Setup Apache spark here
   spark:
     image: docker.io/bitnami/spark:3.4
     environment:
@@ -117,9 +118,9 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
       - SPARK_USER=spark
-      - SPARK_MASTER_WEBUI_PORT=8088
+      - SPARK_MASTER_WEBUI_PORT=8080
     ports:
-      - '8088:8088'
+      - '9099:8080'
       - "7077:7077"
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
@@ -131,8 +132,8 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark:7077
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=8G
+      - SPARK_WORKER_CORES=4
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
